@@ -1,0 +1,2536 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Harta transport lemne</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <link rel="icon" type="image/x-icon" href="https://raw.githubusercontent.com/mapbox/assembly/publisher-staging/src/svgs/mapbox.svg">
+    <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v2.11.0/mapbox-gl.js"></script>
+    <link href="https://api.tiles.mapbox.com/mapbox-gl-js/v2.11.0/mapbox-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/intersection-observer@0.12.0/intersection-observer.js"></script>
+    <script src="https://unpkg.com/scrollama"></script>
+    <link href="https://fonts.googleapis.com/css?family=Roboto&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: row;
+        }
+        #map {
+            height: 100vh;
+            width: 70%;
+        }
+        #panel {
+            font-family: Roboto;
+            width: 30%; /* Define the panel width */
+            background: rgba(240, 240, 240, 0.9); /* Transparent background */
+            overflow-y: auto;
+            max-height: 100vh;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Center content horizontally */
+            
+        }
+        /* Optional: Improve the scrollbar appearance */
+        #panel::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        #panel::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+
+        #panel::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+
+        /* Media query for tablets */
+        @media (max-width: 768px) {
+            #panel {
+                width: 100%; /* Make the panel full width */
+                position: fixed; /* Fixed position to stick at the bottom */
+                bottom: 0; /* Align to the bottom */
+                left: 0; 
+                max-height: 50vh;/* Align to the left */
+                overflow-y: auto; /* Override right positioning for desktop */
+                padding: 10px; /* Adjust padding as needed for smaller screens */
+            }
+        }
+
+        /* Media query for mobile phones */
+        @media (max-width: 480px) {
+            #panel {
+                width: 100%; /* Full width for small screens */
+                position: fixed; /* Fixed position to stick at the bottom */
+                bottom: 0; /* Align to the bottom */
+                left: 0; /* Align to the left */
+                max-height: 60vh; 
+                overflow-y: auto;/* Override right positioning for desktop */
+                padding: 5px; /* Less padding for very small screens */
+            }
+        }
+
+        .image-slider {
+                width: 100%;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .slide {
+                display: none;
+                width: 100%;
+            }
+
+            .slide.active {
+                display: block;
+            }
+
+            .slide img {
+                width: 100%;
+                height: auto;
+            }
+
+            .prev, .next {
+            cursor: pointer;
+            position: absolute;
+            top: 50%;
+            width: auto;
+            margin-top: -22px;
+            padding: 16px;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+            transition: 0.6s ease;
+            border-radius: 0 3px 3px 0;
+            user-select: none;
+        }
+
+.next {
+    right: 0;
+    border-radius: 3px 0 0 3px;
+}
+
+.prev:hover, .next:hover {
+    background-color: rgba(0,0,0,0.8);
+}
+
+
+
+
+        .image {
+            max-width: 100%;
+            width: 50%;
+            height: auto;
+        }
+        .image:hover {
+            transform: scale(3);
+            position: relative;
+            z-index: 1; /* Make the image 20% larger on hover */
+        }
+        .image-container {
+            margin: 10px 0;
+            display: flex;
+            justify-content: center; /* Center images horizontally */
+        }
+
+        /* Add a media query for screens smaller than 768px */
+        @media (max-width: 768px) {
+            #map {
+                width: 100%; /* Map takes full width on smaller screens */
+                 /* Hide the map on smaller screens */
+            }
+            #panel {
+                width: 100%; /* Panel takes full width on smaller screens */
+            }
+        }
+            /* Custom marker style */
+            .custom-marker {
+            width: 30px;
+            height: 30px;
+            background-image: url('marker.png'); /* Reference the local image */
+            background-size: cover;
+            cursor: pointer;
+        }
+
+        #searchHints {
+            background-color: white;
+            border: 1px solid #ddd;
+            margin-top: 5px;
+        }
+
+        #searchHints li {
+            padding: 5px;
+            cursor: pointer;
+        }
+
+        #searchHints li:hover {
+            background-color: #f0f0f0;
+        }
+
+
+    </style>
+</head>
+<body>
+    
+    <div id="map"></div>
+    <div id="panel">
+        <div>
+            <input type="text" id="searchInput" placeholder="Cauta..." oninput="updateSearchHints()">
+            <button onclick="searchAndNavigate(document.getElementById('searchInput').value)">Cauta firma sau tipul de lemn</button>
+            <ul id="searchHints" style="list-style-type: none; padding: 0;"></ul>
+        </div>
+        <h2 id="markerTitle">Folosește harta interactivă</h2>
+        <p id="markerDetails">Caută mai sus firma, locația sau tipul de lemn care te interesează. Click pe markerele de pe hartă pentru detalii legate de firme și de transporturile pe care le fac. Fiecare marker = o firmă. Zoom in și out pentru interacțiune</p>
+        
+        
+    </div>
+
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoicmlzZXByb2plY3QiLCJhIjoiY2xvbnlqaHlsMDJ5ajJxcGE0dWRidnRqNiJ9.f4S7Wyf_K7k517LuP6kv-A';
+        var bounds = [
+            [20.261977, 43.618682], // Southwest coordinates
+            [29.698276, 48.265396]  // Northeast coordinates
+        ]; 
+
+        var map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/riseproject/clonymsy500du01pb9pqhbh28', // Replace with your preferred Mapbox style
+            center: [24.96676, 45.943161], // Bucharest coordinates
+            zoom: 6,
+            maxBounds: bounds // Set your initial zoom level
+        });
+
+        // Create markers for multiple locations
+        const locations = [
+                {  
+                title: "1",
+                coordinates: [
+                25.3505507,
+                45.5675957
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad, molid", "Proveniență": "DEPOZIT GATER ADYTI FOREST ZĂRNEȘTI", "Identificator transportator": "AB56SLV", "Volum total": "10.3m cubi"},
+                images: ["DA23008457001001332405310951_2.jpg"]
+                },
+            
+                {
+                title: "2",
+                coordinates: [
+                25.3786523,
+                45.9820681
+                ],
+                details: {"Marfă grupe specii": "Diverse moi, Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "plop euramerican I-214, plop euramerican NESL., plop cenușiu, Fag", "Proveniență": "DEPOZIT CHERESTEA ALETTA", "Identificator transportator": "AB68SLV", "Volum total": "15.307178m cubi"},
+                images: ["DA23007078001500906202280825_0.jpg"]
+                },
+            
+                {
+                title: "3",
+                coordinates: [
+                26.0518841,
+                44.7932046
+                ],
+                details: {"Marfă grupe specii": "Fag, Diverse moi", "Marfă sortimente": "Lemn de foc", "Marfă specie": "Fag, plop tremurător", "Proveniență": "Crivina", "Identificator transportator": "AB58SLV", "Volum total": "12.05776m cubi"},
+                images: ["DA23009840001201972403041018_2.jpg"]
+            },
+            
+                {
+                title: "4",
+                coordinates: [
+                23.8537773,
+                45.8816145
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad", "Proveniență": "BOZESAN GREEN GROUP", "Identificator transportator": "AB69SLV", "Volum total": "12.4m cubi"},
+                images: ["DA23008815001201494204041135_0.jpg"]
+            },
+            
+                {
+                title: "5",
+                coordinates: [
+                24.8394227,
+                45.1465555
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "plop negru", "Proveniență": "RETEVOIESTI", "Identificator transportator": "AB54SLV", "Volum total": "12.4m cubi"},
+                images: ["DA23004927001200460803090906_0.jpg","DA23004927001200460803090906_1.jpg","DA23004927001200460803090906_2.jpg"]
+                },
+            
+                {
+                title: "5",
+                coordinates: [
+                24.8394227,
+                45.1465555
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Cherestele", "Marfă specie": "plop negru", "Proveniență": "RETEVOIESTI", "Identificator transportator": "AB69SLV", "Volum total": "13.224m cubi"},
+                images: ["DC23004927001300460803310922_0.jpg"]
+                },
+            
+                {
+                title: "5",
+                coordinates: [
+                24.8394227,
+                45.1465555
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Cherestele", "Marfă specie": "plop alb", "Proveniență": "RETEVOIESTI", "Identificator transportator": "B564SLS", "Volum total": "13.224m cubi"},
+                images: ["DC23004927001300460803310919_0.jpg"]
+            },
+            
+                {
+            title: "6",
+                coordinates: [
+                23.3093598,
+                45.0670983
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT TG-JIU", "Identificator transportator": "AB63SLV", "Volum total": "12.3m cubi"},
+                images: ["DA23007409001201918403200949_0.jpg"]
+            },
+            
+                {
+            title: "6",
+                coordinates: [
+                23.3093598,
+                45.0670983
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT TG-JIU", "Identificator transportator": "AB69SLV", "Volum total": "10.1m cubi"},
+                images: ["DA23007409001001918404050902_2.jpg"]
+            },
+            {
+            title: "7",
+                coordinates: [
+                24.8379787,
+                45.1454098
+                ],
+                details: {"Marfă grupe specii": "Diverse moi, Rășinoase", "Marfă sortimente": "Cherestele", "Marfă specie": "plop euramerican I-214, anin negru, molid", "Proveniență": "RETEVOIESTI", "Identificator transportator": "AB69SLV", "Volum total": "10.944m cubi"},
+                images: ["DC23004937001000463702240944_1.jpg"]
+            },
+            {
+            title: "8",
+                coordinates: [
+                24.3510317,
+                47.6588885
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "Siliștea de Sus, str. Prund, nr. 3", "Identificator transportator": "AB59SLV", "Volum total": "10.4m cubi"},
+                images: ["DA23002767001000669904100919_0.jpg"]
+            },
+            {
+            title: "8",
+                coordinates: [
+                24.3510317,
+                47.6588885
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "Siliștea de Sus, str. Prund, nr. 3", "Identificator transportator": "B560SLS", "Volum total": "10.3m cubi"},
+                images: ["DA23002767001000669903210959_0.jpg"]
+            },
+            {
+            title: "9",
+                coordinates: [
+                26.1168517,
+                45.8844861
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad", "Proveniență": "DDCA nr. Tamasfalau 21/A", "Identificator transportator": "AB54SLV", "Volum total": "11m cubi"},
+                images: ["DA23007217001102283104041040_1.jpg"]
+            },
+            {
+            title: "9",
+                coordinates: [
+                26.1168517,
+                45.8844861
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DDCA nr. Tamasfalau 21/A", "Identificator transportator": "AB58SLV", "Volum total": "12m cubi"},
+                images: ["DA23007217001202283103060735_0.jpg"]
+            },
+            {
+            title: "9",
+                coordinates: [
+                26.1168517,
+                45.8844861
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "brad", "Proveniență": "DDCA nr. Tamasfalau 21/A", "Identificator transportator": "AB55SLV", "Volum total": "10.5m cubi"},
+                images: ["DA23007217001002283104041042_1.jpg"]
+            },
+            
+            {
+            title: "10",
+                coordinates: [
+                24.2576477,
+                45.6662191
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "Depozit - Ion Creanga 16", "Identificator transportator": "AB68SLV", "Volum total": "12.05m cubi"},
+                images: ["DA23005342001200543103060817_2.jpg"]
+            },
+{
+    title: "11",
+                coordinates: [
+                24.524135,
+                45.7557372
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad", "Proveniență": "Depozit Scoreiu", "Identificator transportator": "AB69SLV", "Volum total": "9m cubi"},
+                images: ["DA23007689000901025405101540_0.jpg"]
+            },
+{
+    title: "11",
+                coordinates: [
+                24.524135,
+                45.7557372
+                ],
+                details: {"Marfă grupe specii": "Rășinoase, DIVERSE TARI", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid, paltin de munte, frasin", "Proveniență": "Depozit Scoreiu", "Identificator transportator": "AB69SLV", "Volum total": "11.3m cubi"},
+                images: ["DA23007689001101025403140812_0.jpg"]
+            },
+{
+    title: "11",
+                coordinates: [
+                24.524135,
+                45.7557372
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad, molid", "Proveniență": "Depozit Scoreiu", "Identificator transportator": "AB68SLV", "Volum total": "10m cubi"},
+                images: ["DA23007689001001025403020743_0.jpg"]
+            },
+{
+    title: "11",
+                coordinates: [
+                24.524135,
+                45.7557372
+                ],
+                details: {"Marfă grupe specii": "Rășinoase, DIVERSE TARI", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid, frasin, paltin de munte", "Proveniență": "Depozit Scoreiu", "Identificator transportator": "AB68SLV", "Volum total": "9.89m cubi"},
+                images: ["DA23007689000901025403140809_0.jpg"]
+            },
+{
+    title: "12",
+                coordinates: [
+                24.898281,
+                45.0220332
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "biomasă certificabilă", "Marfă specie": "plop euramerican NESL.", "Proveniență": "DEPOZIT.EXPRESIV", "Identificator transportator": "AB69SLV", "Volum total": "6.5m cubi"},
+                images: ["DA23005075000600498903071331_1.jpg"]
+            },
+{
+    title: "12",
+                coordinates: [
+                24.898281,
+                45.0220332
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "plop euramerican R-16", "Proveniență": "DEPOZIT EXPRESIV", "Identificator transportator": "AB69SLV", "Volum total": "11.1m cubi"},
+                images: ["DA23005075001100498903220805_0.jpg"]
+            },
+{
+    title: "12",
+                coordinates: [
+                24.898281,
+                45.0220332
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "biomasă certificabilă", "Marfă specie": "plop euramerican NESL.", "Proveniență": "DEPOZIT.EXPRESIV", "Identificator transportator": "AB69SLV", "Volum total": "14m cubi"},
+                images: ["DA23005075001400498903071315_2.jpg"]
+            },
+{
+    title: "12",
+                coordinates: [
+                24.898281,
+                45.0220332
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "plop alb", "Proveniență": "DEPOZIT EXPRESIV", "Identificator transportator": "AB61SLV", "Volum total": "12.8m cubi"},
+                images: ["DA23005075001200498905130959_0.jpg"]
+            },
+{
+    title: "12",
+                coordinates: [
+                24.898281,
+                45.0220332
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "plop euramerican NESL.", "Proveniență": "DEPOZIT EXPRESIV", "Identificator transportator": "AB68SLV", "Volum total": "10m cubi"},
+                images: ["DA23005075001000498903071311_2.jpg"]
+            },
+{
+    title: "12",
+                coordinates: [
+                24.898281,
+                45.0220332
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "biomasă certificabilă", "Marfă specie": "plop euramerican NESL.", "Proveniență": "DEPOZIT EXPRESIV", "Identificator transportator": "B564SLS", "Volum total": "7m cubi"},
+                images: ["DA23005075000700498903220801_2.jpg"]
+            },
+{
+    title: "13",
+                coordinates: [
+                25.3825801,
+                45.6614815
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Holbav", "Identificator transportator": "AB58SLV", "Volum total": "11.5m cubi"},
+                images: ["DA23008319001101281405181217_0.jpg"]
+            },
+{
+    title: "14",
+                coordinates: [
+                24.5706341,
+                45.7638948
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "CHERESTEA CARTA", "Identificator transportator": "AB69SLV", "Volum total": "8.5m cubi"},
+                images: ["DA23004515000800534803160831_0.jpg"]
+            },
+{
+    title: "14",
+                coordinates: [
+                24.5706341,
+                45.7638948
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "CHERESTEA CARTA", "Identificator transportator": "AB58SLV", "Volum total": "10m cubi"},
+                images: ["DA23004515001000534803030810_0.jpg"]
+            },
+{
+    title: "14",
+                coordinates: [
+                24.5706341,
+                45.7638948
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "CHERESTEA CARTA", "Identificator transportator": "AB55SLV", "Volum total": "10m cubi"},
+                images: ["DA23004515001000534804100917_0.jpg"]
+            },
+{
+    title: "14",
+                coordinates: [
+                24.5706341,
+                45.7638948
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "CHERESTEA CARTA", "Identificator transportator": "AB59SLV", "Volum total": "10m cubi"},
+                images: ["DA23004515001000534803030812_2.jpg"]
+            },
+{
+    title: "14",
+                coordinates: [
+                24.5706341,
+                45.7638948
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "Fag", "Proveniență": "CHERESTEA CARTA", "Identificator transportator": "B558SLS", "Volum total": "8.8m cubi"},
+                images: ["DA23004515000800534808230824_0.jpg"]
+            },
+{
+    title: "14",
+                coordinates: [
+                24.5706341,
+                45.7638948
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "CHERESTEA CARTA", "Identificator transportator": "B562SLS", "Volum total": "11m cubi"},
+                images: ["DA23004515001100534803221521_1.jpg"]
+            },
+{
+    title: "14",
+                coordinates: [
+                24.5706341,
+                45.7638948
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "Fag", "Proveniență": "CHERESTEA CARTA", "Identificator transportator": "B564SLS", "Volum total": "7m cubi"},
+                images: ["DA23004515000700534803160829_0.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid", "Proveniență": "HS Sebes", "Identificator transportator": "AB53SLV", "Volum total": "29.7021m cubi"},
+                images: ["DA23000520002902592602130958_0.jpg","DA23000520002902592602130958_1.jpg","DA23000520002902592602130958_2.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid", "Proveniență": "HS Sebes", "Identificator transportator": "AB53SLV", "Volum total": "29.7021m cubi"},
+                images: ["DA23000520002904934402131259_0.jpg","DA23000520002904934402131259_1.jpg","DA23000520002904934402131259_2.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid", "Proveniență": "HS Sebes", "Identificator transportator": "AB53SLV", "Volum total": "29.7021m cubi"},
+                images: ["DA23000520002904934402131541_0.jpg","DA23000520002904934402131541_1.jpg","DA23000520002904934402131541_2.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "HS Sebes", "Identificator transportator": "AB45SLV", "Volum total": "25.0803m cubi"},
+                images: ["DA22000520002502592805211428_0.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid", "Proveniență": "HS Sebes", "Identificator transportator": "AB45SLV", "Volum total": "29.4804m cubi"},
+                images: ["DA22000520002902592805211121_0.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid", "Proveniență": "HS Sebes", "Identificator transportator": "AB45SLV", "Volum total": "29.4804m cubi"},
+                images: ["DA22000520002902655405071239_1.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid", "Proveniență": "HS Sebes", "Identificator transportator": "AB53SLV", "Volum total": "29.7021m cubi"},
+                images: ["DA23000520002902592602131823_0.jpg","DA23000520002902592602131823_1.jpg","DA23000520002902592602131823_2.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid", "Proveniență": "HS Sebes", "Identificator transportator": "AB53SLV", "Volum total": "29.7021m cubi"},
+                images: ["DA22000520002902655407161357_1.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "pin silvestru", "Proveniență": "HS Sebes", "Identificator transportator": "AB51SLV", "Volum total": "24.9043m cubi"},
+                images: ["DA23000520002402592803231309_0.jpg"]
+            },
+{
+    title: "15",
+                coordinates: [
+                23.546766,
+                45.9652637
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "pin silvestru", "Proveniență": "HS Sebes", "Identificator transportator": "AB51SLV", "Volum total": "24.9043m cubi"},
+                images: ["DA23000520002402592803231538_2.jpg"]
+            },
+{
+    title: "16",
+                coordinates: [
+                21.7367879,
+                45.3815861
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT BUSTEAN BICHISTIN 11", "Identificator transportator": "AB69SLV", "Volum total": "11.2m cubi"},
+                images: ["DA23006472001102829105031003_0.jpg"]
+            },
+{
+    title: "16",
+                coordinates: [
+                21.7367879,
+                45.3815861
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad, DUGLAS", "Proveniență": "DEPOZIT BUSTEAN BICHISTIN 11", "Identificator transportator": "AB69SLV", "Volum total": "11.5m cubi"},
+                images: ["DA23006472001102831103030845_2.jpg"]
+            },
+{
+    title: "16",
+                coordinates: [
+                21.7367879,
+                45.3815861
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT BUSTEAN BICHISTIN 11", "Identificator transportator": "AB68SLV", "Volum total": "11.7m cubi"},
+                images: ["DA23006472001102831103030842_0.jpg"]
+            },
+{
+    title: "17",
+                coordinates: [
+                26.318668,
+                47.4594912
+                ],
+                details: {"Marfă grupe specii": "Rășinoase, Fag", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid, Fag", "Proveniență": "FALTICENI", "Identificator transportator": "AB53SLV", "Volum total": "26.909m cubi"},
+                images: ["DA23007311002601677702271231_0.jpg","DA23007311002601677702271231_1.jpg","DA23007311002601677702271231_2.jpg"]
+            },
+{
+    title: "17",
+                coordinates: [
+                26.318668,
+                47.4594912
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Cherestele", "Marfă specie": "molid", "Proveniență": "BRAȘOV", "Identificator transportator": "AB69SLV", "Volum total": "11.9808m cubi"},
+                images: ["DC23007311001106433002281029_1.jpg"]
+            },
+{
+    title: "17",
+                coordinates: [
+                26.318668,
+                47.4594912
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Cherestele", "Marfă specie": "brad", "Proveniență": "BRAȘOV", "Identificator transportator": "AB45SLV", "Volum total": "13.454707m cubi"},
+                images: ["DC22007311001306433009081538_1.jpg"]
+            },
+{
+    title: "17",
+                coordinates: [
+                26.318668,
+                47.4594912
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "FALTICENI", "Identificator transportator": "AB45SLV", "Volum total": "22.01m cubi"},
+                images: ["DA23007311002201676101251309_1.jpg"]
+            },
+{
+    title: "18",
+                coordinates: [
+                22.2580332,
+                45.2845003
+                ],
+                details: {"Marfă grupe specii": "Diverse moi, DIVERSE TARI", "Marfă sortimente": "Lemn de foc", "Marfă specie": "plop tremurător, mesteacăn", "Proveniență": "DEPOZIT GOLET", "Identificator transportator": "AB69SLV", "Volum total": "13.398m cubi"},
+                images: ["DA23009381001301744502250943_0.jpg"]
+            },
+{
+    title: "18",
+                coordinates: [
+                22.2580332,
+                45.2845003
+                ],
+                details: {"Marfă grupe specii": "Diverse moi, DIVERSE TARI", "Marfă sortimente": "Lemn de foc", "Marfă specie": "plop tremurător, mesteacăn", "Proveniență": "DEPOZIT GOLET", "Identificator transportator": "AB59SLV", "Volum total": "13.572m cubi"},
+                images: ["DA23009381001301744503091749_1.jpg"]
+            },
+{
+    title: "18",
+                coordinates: [
+                22.2580332,
+                45.2845003
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI, Diverse moi", "Marfă sortimente": "Lemn de foc", "Marfă specie": "plop tremurător, mesteacăn", "Proveniență": "DEPOZIT GOLET", "Identificator transportator": "AB68SLV", "Volum total": "14.5464m cubi"},
+                images: ["DA23009381001401744502250938_1.jpg"]
+            },
+{
+    title: "19",
+                coordinates: [
+                24.3216889,
+                47.6586116
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "SALISTEA DE SUS, FURULUI 1A", "Identificator transportator": "AB57SLV", "Volum total": "9.6m cubi"},
+                images: ["DA23002027000900661103101238_1.jpg"]
+            },
+{
+    title: "19",
+                coordinates: [
+                24.3216889,
+                47.6586116
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "SALISTEA DE SUS, FURULUI 1A", "Identificator transportator": "AB56SLV", "Volum total": "11.1m cubi"},
+                images: ["DA23002027001100661103101234_1.jpg"]
+            },
+{
+    title: "19",
+                coordinates: [
+                24.3216889,
+                47.6586116
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "SALISTEA DE SUS, FURULUI 1A", "Identificator transportator": "AB57SLV", "Volum total": "11.6m cubi"},
+                images: ["DA23002027001100661105041153_1.jpg"]
+            },
+{
+    title: "20",
+                coordinates: [
+                24.3898244,
+                47.6556926
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "SALISTEA DE SUS, FATA STEJERULUI, FN", "Identificator transportator": "AB58SLV", "Volum total": "9.5m cubi"},
+                images: ["DA23004722000900696503201037_0.jpg"]
+            },
+{
+    title: "20",
+                coordinates: [
+                24.3898244,
+                47.6556926
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "SALISTEA DE SUS, FATA STEJERULUI, FN", "Identificator transportator": "AB59SLV", "Volum total": "10.5m cubi"},
+                images: ["DA23004722001000696503201042_0.jpg"]
+            },
+{
+    title: "20",
+                coordinates: [
+                24.3898244,
+                47.6556926
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "SALISTEA DE SUS, FATA STEJERULUI, FN", "Identificator transportator":"", "Volum total": "m cubi"},
+                images: ["DA23004722001100696507271047_0.jpg"]
+            },
+{
+    title: "20",
+                coordinates: [
+                24.3898244,
+                47.6556926
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "SALISTEA DE SUS, FATA STEJERULUI, FN", "Identificator transportator": "B558SLS", "Volum total": "11m cubi"},
+                images: ["DA23004722001100696505171001_0.jpg"]
+            },
+{
+    title: "21",
+                coordinates: [
+                24.5230081,
+                44.1738258
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gârniță (L)", "Proveniență": "Depozit Str. Marului nr. 14", "Identificator transportator": "AB69SLV", "Volum total": "6.5m cubi"},
+                images: ["DA23001883000602508702271103_0.jpg","DA23001883000602508702271103_1.jpg","DA23001883000602508702271103_2.jpg"]
+            },
+{
+    title: "21",
+                coordinates: [
+                24.5230081,
+                44.1738258
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "Rumeguș", "Marfă specie": "frasin", "Proveniență": "Depozit Str. Marului nr. 14", "Identificator transportator": "AB68SLV", "Volum total": "6.5m cubi"},
+                images: ["DA23001883000602508702271059_1.jpg"]
+            },
+{
+    title: "21",
+                coordinates: [
+                24.5230081,
+                44.1738258
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI, QVERCINEE", "Marfă sortimente": "tocătură necertificabilă, Rumeguș", "Marfă specie": "frasin, gârniță (L)", "Proveniență": "Depozit Str. Marului nr. 14", "Identificator transportator": "B558SLS", "Volum total": "11.2m cubi"},
+                images: ["DA23001883001100226506060934_1.jpg"]
+            },
+{
+    title: "22",
+                coordinates: [
+                23.643865,
+                45.150411
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid, brad", "Proveniență": "NOVACI", "Identificator transportator": "B560SLS", "Volum total": "11m cubi"},
+                images: ["DA23006994001102870303291115_0.jpg"]
+            },
+{
+    title: "23",
+                coordinates: [
+                25.4432249,
+                44.9067518
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "Depozit lemn", "Identificator transportator": "B564SLS", "Volum total": "12m cubi"},
+                images: ["DA23012658001204128804061235_0.jpg"]
+            },
+{
+    title: "24",
+                coordinates: [
+                25.9643551,
+                44.5045312
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "OXIGEN", "Identificator transportator": "AB69SLV", "Volum total": "12m cubi"},
+                images: ["DA23007666001201345404181235_0.jpg"]
+            },
+{
+    title: "24",
+                coordinates: [
+                25.9643551,
+                44.5045312
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "Rumeguș", "Marfă specie": "frasin", "Proveniență": "OXIGEN", "Identificator transportator": "AB63SLV", "Volum total": "12m cubi"},
+                images: ["DA23007666001201345405021247_2.jpg"]
+            },
+{
+    title: "24",
+                coordinates: [
+                25.9643551,
+                44.5045312
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "stejar Brumăriu", "Proveniență": "OXIGEN", "Identificator transportator": "B558SLS", "Volum total": "12m cubi"},
+                images: ["DA23007666001201345405021245_0.jpg"]
+            },
+{
+    title: "24",
+                coordinates: [
+                25.9643551,
+                44.5045312
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "OXIGEN", "Identificator transportator": "B564SLS", "Volum total": "11m cubi"},
+                images: ["DA23007666001101345404181232_1.jpg"]
+            },
+{
+    title: "25",
+                coordinates: [
+                24.2534459,
+                45.3348383
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT FINAL", "Identificator transportator": "AB69SLV", "Volum total": "9.3m cubi"},
+                images: ["DA23007701000901029605180916_0.jpg"]
+            },
+{
+    title: "25",
+                coordinates: [
+                24.2534459,
+                45.3348383
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT FINAL", "Identificator transportator": "AB63SLV", "Volum total": "10.5m cubi"},
+                images: ["DA23007701001001029604250730_1.jpg"]
+            },
+{
+    title: "25",
+                coordinates: [
+                24.2534459,
+                45.3348383
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT FINAL", "Identificator transportator": "AB69SLV", "Volum total": "10m cubi"},
+                images: ["DA23007701001001029605261715_0.jpg"]
+            },
+{
+    title: "25",
+                coordinates: [
+                24.2534459,
+                45.3348383
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT FINAL", "Identificator transportator": "AB69SLV", "Volum total": "10m cubi"},
+                images: ["DA23007701001002489903061802_2.jpg"]
+            },
+{
+    title: "25",
+                coordinates: [
+                24.2534459,
+                45.3348383
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT FINAL", "Identificator transportator": "AB68SLV", "Volum total": "10m cubi"},
+                images: ["DA23007701001002489903061810_0.jpg"]
+            },
+{
+    title: "25",
+                coordinates: [
+                24.2534459,
+                45.3348383
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT FINAL", "Identificator transportator": "B558SLS", "Volum total": "11.5m cubi"},
+                images: ["DA23007701001101029604250728_0.jpg"]
+            },
+{
+    title: "25",
+                coordinates: [
+                24.2534459,
+                45.3348383
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT FINAL", "Identificator transportator": "B558SLS", "Volum total": "10m cubi"},
+                images: ["DA23007701001001029606221730_0.jpg"]
+            },
+{
+    title: "26",
+                coordinates: [
+                26.3064463,
+                44.8332781
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Lemn rotund", "Marfă specie": "plop euramerican NESL.", "Proveniență": "Depozit Meri", "Identificator transportator": "AB76SLV", "Volum total": "17.5782m cubi"},
+                images: ["DA23000649001700474803281259_0.jpg"]
+            },
+{
+    title: "27",
+                coordinates: [
+                23.5485225,
+                47.4039986
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L)", "Proveniență": "Prislop", "Identificator transportator": "AB56SLV", "Volum total": "11.5m cubi"},
+                images: ["DA23001110001100620804100805_0.jpg"]
+            },
+{
+    title: "27",
+                coordinates: [
+                23.5485225,
+                47.4039986
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE, Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "CER (L), Fag", "Proveniență": "Prislop", "Identificator transportator": "AB56SLV", "Volum total": "11.15m cubi"},
+                images: ["DA23001110001105551904260802_1.jpg"]
+            },
+{
+    title: "27",
+                coordinates: [
+                23.5485225,
+                47.4039986
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE, Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L), Fag", "Proveniență": "Prislop", "Identificator transportator": "AB57SLV", "Volum total": "11.4m cubi"},
+                images: ["DA23001110001105551904260809_1.jpg"]
+            },
+{
+    title: "27",
+                coordinates: [
+                23.5485225,
+                47.4039986
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "Baia Mare", "Identificator transportator": "AB57SLV", "Volum total": "11m cubi"},
+                images: ["DA23001110001106869702280839_0.jpg"]
+            },
+{
+    title: "27",
+                coordinates: [
+                23.5485225,
+                47.4039986
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L)", "Proveniență": "Prislop", "Identificator transportator": "AB69SLV", "Volum total": "12m cubi"},
+                images: ["DA23001110001205551903021542_1.jpg"]
+            },
+{
+    title: "27",
+                coordinates: [
+                23.5485225,
+                47.4039986
+                ],
+                details: {"Marfă grupe specii": "Fag, QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag, gorun (L)", "Proveniență": "Prislop", "Identificator transportator": "AB56SLV", "Volum total": "12m cubi"},
+                images: ["DA23001110001205551903300832_0.jpg"]
+            },
+{
+    title: "27",
+                coordinates: [
+                23.5485225,
+                47.4039986
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L)", "Proveniență": "Prislop", "Identificator transportator": "AB68SLV", "Volum total": "11.4m cubi"},
+                images: ["DA23001110001105551903021535_2.jpg"]
+            },
+{
+    title: "28",
+                coordinates: [
+                24.9964406,
+                45.8288947
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Cherestele", "Marfă specie": "Fag", "Proveniență": "DEPOZIT Făgăraș", "Identificator transportator": "AB69SLV", "Volum total": "8.37m cubi"},
+                images: ["DC23008466000806771104280843_0.jpg"]
+            },
+{
+    title: "28",
+                coordinates: [
+                24.9964406,
+                45.8288947
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "Fag", "Proveniență": "DEPOZIT Făgăraș", "Identificator transportator": "B562SLS", "Volum total": "8m cubi"},
+                images: ["DA23008466000806771104011136_0.jpg"]
+            },
+{
+    title: "28",
+                coordinates: [
+                24.9964406,
+                45.8288947
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "Fag", "Proveniență": "DEPOZIT Făgăraș", "Identificator transportator": "B564SLS", "Volum total": "12m cubi"},
+                images: ["DA23008466001206771104280839_0.jpg"]
+            },
+{
+    title: "29",
+                coordinates: [
+                23.4077616,
+                45.4202823
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT PETROSANI", "Identificator transportator": "AB54SLV", "Volum total": "12m cubi"},
+                images: ["DA23008066001202907205040836_0.jpg"]
+            },
+{
+    title: "29",
+                coordinates: [
+                23.4077616,
+                45.4202823
+                ],
+                details: {"Marfă grupe specii": "Rășinoase, DIVERSE TARI", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid frasin", "Proveniență": "DEPOZIT PETROSANI", "Identificator transportator": "AB63SLV", "Volum total": "12.1988m cubi"},
+                images: ["DA23008066001202907205301720_1.jpg"]
+            },
+{
+    title: "30",
+                coordinates: [
+                23.641999,
+                44.0396374
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Rumeguș", "Marfă specie": "plop euramerican I-214", "Proveniență": "Cerat", "Identificator transportator": "AB57SLV", "Volum total": "11m cubi"},
+                images: ["DA23000880001101695705021126_1.jpg"]
+            },
+{
+    title: "30",
+                coordinates: [
+                23.641999,
+                44.0396374
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "plop euramerican R-16", "Proveniență": "Cerat", "Identificator transportator": "AB63SLV", "Volum total": "12.8m cubi"},
+                images: ["DA23000880001201695704211013_1.jpg"]
+            },
+{
+    title: "30",
+                coordinates: [
+                23.641999,
+                44.0396374
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Rumeguș", "Marfă specie": "plop euramerican I-214", "Proveniență": "Cerat", "Identificator transportator": "AB56SLV", "Volum total": "12m cubi"},
+                images: ["DA23000880001201695705021124_0.jpg"]
+            },
+{
+    title: "30",
+                coordinates: [
+                23.641999,
+                44.0396374
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Rumeguș", "Marfă specie": "plop euramerican I-214", "Proveniență": "Cerat", "Identificator transportator":"", "Volum total": "m cubi"},
+                images: ["DA23000880001101695706081247_2.jpg"]
+            },
+{
+    title: "30",
+                coordinates: [
+                23.641999,
+                44.0396374
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "plop euramerican R-16", "Proveniență": "Cerat", "Identificator transportator": "B558SLS", "Volum total": "12.9m cubi"},
+                images: ["DA23000880001201695704211012_2.jpg"]
+            },
+{
+    title: "31",
+                coordinates: [
+                21.6810391,
+                45.0341224
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "Depozit Normarom Oravita", "Identificator transportator": "B562SLS", "Volum total": "10.5m cubi"},
+                images: ["DA23005681001002300003131041_1.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "coajă", "Marfă specie": "gârniță (L)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB58SLV", "Volum total": "9m cubi"},
+                images: ["DA23005690000902366605020935_1.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "gorun (L)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB63SLV", "Volum total": "10.7m cubi"},
+                images: ["DA23005690001002366603231840_1.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB69SLV", "Volum total": "11m cubi"},
+                images: ["DA23005690001102366603141749_0.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L), GARNITA (S), CER (L), CER (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB63SLV", "Volum total": "11m cubi"},
+                images: ["DA23005690001102366603301735_0.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE, Diverse moi", "Marfă sortimente": "Rumeguș", "Marfă specie": "gârniță (L), tei argintiu", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB69SLV", "Volum total": "11m cubi"},
+                images: ["DA23005690001102366604251649_0.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Resturi de lemnn", "Marfă specie": "stejar PEDUNCULAT (S), GARNITA (S), stejar roșu, gorun (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator":"AB69SLV", "Volum total": "m cubi"},
+                images: ["DA23005690001102366606070842.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "CER (L), CER (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB56SLV", "Volum total": "10.1m cubi"},
+                images: ["DA23005690001002366605230821_0.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "CER (L), CER (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB56SLV", "Volum total": "11m cubi"},
+                images: ["DA23005690001102366602281748_1.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB59SLV", "Volum total": "10.6m cubi"},
+                images: ["DA23005690001002366603140907_0.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L), GARNITA (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB63SLV", "Volum total": "12m cubi"},
+                images: ["DA23005690001202366603071701_2.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "coajă", "Marfă specie": "GARNITA (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB69SLV", "Volum total": "9m cubi"},
+                images: ["DA23005690000902366605161652_2.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "GARNITA (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB61SLV", "Volum total": "10.5m cubi"},
+                images: ["DA23005690001002366605091826_0.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "gorun (L)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "AB62SLV", "Volum total": "10.7m cubi"},
+                images: ["DA23005690001002366603071659_1.jpg"]
+            },
+{
+    title: "32",
+                coordinates: [
+                21.7562132,
+                45.3796382
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "coajă", "Marfă specie": "CER (S), GARNITA (S)", "Proveniență": "BOCSA RAZ", "Identificator transportator": "B564SLS", "Volum total": "9.03m cubi"},
+                images: ["DA23005690000902366606070839_2.jpg"]
+            },
+
+{
+    title: "33",
+                coordinates: [
+                22.4024383,
+                45.9924877
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Rumeguș", "Marfă specie": "tei pucios, tei argintiu", "Proveniență": "AGER FOREST", "Identificator transportator": "AB58SLV", "Volum total": "9.4m cubi"},
+                images: ["DA23004236000900304904270953_0.jpg"]
+            },
+{
+    title: "33",
+                coordinates: [
+                22.4024383,
+                45.9924877
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Rumeguș", "Marfă specie": "tei argintiu", "Proveniență": "AGER FOREST", "Identificator transportator": "AB59SLV", "Volum total": "9.2m cubi"},
+                images: ["DA23004236000900304904270957_0.jpg"]
+            },
+{
+    title: "34",
+                coordinates: [
+                20.647335,
+                46.0503628
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Rumeguș", "Marfă specie": "plop alb", "Proveniență": "DEPOZIT SANNICOLAU MARE", "Identificator transportator": "AB59SLV", "Volum total": "12m cubi"},
+                images: ["DA23003242001200220504180852_0.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Câmpu lui Neag", "Identificator transportator": "AB63SLV", "Volum total": "11m cubi"},
+                images: ["DA23003518001100277405091837_1.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Fag, Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag, molid", "Proveniență":"Câmpu lui Neag", "Identificator transportator": "AB56SLV", "Volum total": "12m cubi"},
+                images: ["DA23003518001200277404041038_1.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Lemn de foc", "Marfă specie": "molid", "Proveniență": "Câmpu lui Neag", "Identificator transportator": "AB69SLV", "Volum total": "13.392m cubi"},
+                images: ["DA23003518001300277404240945_0.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Cherestele", "Marfă specie": "molid", "Proveniență": "Câmpu lui Neag", "Identificator transportator": "AB57SLV", "Volum total": "11.3256m cubi"},
+                images: ["DC23003518001100277404041040_2.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid, brad", "Proveniență": "Câmpu lui Neag", "Identificator transportator": "B558SLS", "Volum total": "11m cubi"},
+                images: ["DA23003518001100277406270852_0.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Rășinoase, Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid, Fag", "Proveniență": "Câmpu lui Neag", "Identificator transportator": "B558SLS", "Volum total": "11m cubi"},
+                images: ["DA23003518001100277405091836_2.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Rășinoase, Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid, Fag", "Proveniență": "Câmpu lui Neag", "Identificator transportator": "B558SLS", "Volum total": "11m cubi"},
+                images: ["DA23003518001100277403130952_0.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Fag, Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag, molid", "Proveniență": "Câmpu lui Neag", "Identificator transportator": "B558SLS", "Volum total": "10m cubi"},
+                images: ["DA23003518001000277405111705_2.jpg"]
+            },
+{
+    title: "35",
+                coordinates: [
+                23.0335231,
+                45.3047156
+                ],
+                details: {"Marfă grupe specii": "Fag, Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag, molid", "Proveniență": "Câmpu lui Neag", "Identificator transportator": "B564SLS", "Volum total": "11m cubi"},
+                images: ["DA23003518001100277404240943_0.jpg"]
+            },
+{
+    title: "36",
+                coordinates: [
+                21.1761195,
+                45.6414629
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Rumeguș", "Marfă specie": "tei argintiu", "Proveniență": "AVANIA", "Identificator transportator": "AB69SLV", "Volum total": "12.35m cubi"},
+                images: ["DA23017088001206051005050956_1.jpg"]
+            },
+{
+    title: "37",
+                coordinates: [
+                22.0128252,
+                45.625048
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "coajă", "Marfă specie": "gârniță (L), gorun (L)", "Proveniență": "BF Gavojdia", "Identificator transportator": "AB69SLV", "Volum total": "11m cubi"},
+                images: ["DA23002246001102351204070908_0.jpg"]
+            },
+{
+    title: "37",
+                coordinates: [
+                22.0128252,
+                45.625048
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "coajă", "Marfă specie": "gorun (S), gorun (L)", "Proveniență": "BF Gavojdia", "Identificator transportator": "AB54SLV", "Volum total": "12m cubi"},
+                images: ["DA23002246001202351204241018_0.jpg"]
+            },
+{
+    title: "37",
+                coordinates: [
+                22.0128252,
+                45.625048
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L), GARNITA (S), stejar PEDUNCULAT (S), gorun (S)", "Proveniență": "Depozit GAVOJDIA", "Identificator transportator": "AB58SLV", "Volum total": "12m cubi"},
+                images: ["DA23002246001202351204280954_0.jpg"]
+            },
+{
+    title: "37",
+                coordinates: [
+                22.0128252,
+                45.625048
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "coajă", "Marfă specie": "gorun (S), GARNITA (S), stejar PEDUNCULAT (S), gorun (L)", "Proveniență": "Depozit GAVOJDIA", "Identificator transportator": "AB59SLV", "Volum total": "13.1m cubi"},
+                images: ["DA23002246001302353104280958_0.jpg"]
+            },
+{
+    title: "37",
+                coordinates: [
+                22.0128252,
+                45.625048
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L), gorun (S)", "Proveniență": "BF Gavojdia", "Identificator transportator": "AB55SLV", "Volum total": "12m cubi"},
+                images: ["DA23002246001202351204241022_0.jpg"]
+            },
+{
+    title: "37",
+                coordinates: [
+                22.0128252,
+                45.625048
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (S), GARNITA (S)", "Proveniență": "BF Gavojdia", "Identificator transportator": "B564SLS", "Volum total": "11m cubi"},
+                images: ["DA23002246001102351204070904_2.jpg"]
+            },
+{
+    title: "38",
+                coordinates: [
+                22.8943864,
+                46.7146582
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Corana", "Identificator transportator": "AB69SLV", "Volum total": "11.1m cubi"},
+                images: ["DA23001019001100728303230808_0.jpg"]
+            },
+{
+    title: "39",
+                coordinates: [
+                23.7263948,
+                46.5364314
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT MIHAI VITEAZU NR. 763B", "Identificator transportator": "B558SLS", "Volum total": "11.7m cubi"},
+                images: ["DA23006373001101321307131050_0.jpg"]
+            },
+{
+    title: "39",
+                coordinates: [
+                23.1078273,
+                46.3748215
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "molid, Rumeguș", "Marfă specie":"", "Proveniență": "BISTRA", "Identificator transportator":"", "Volum total": "m cubi"},
+                images: ["DA23001905001101178106060819_1.jpg"]
+            },
+{
+    title: "39",
+                coordinates: [
+                23.1078273,
+                46.3748215
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "BISTRA", "Identificator transportator": "B564SLS", "Volum total": "11m cubi"},
+                images: ["DA23001905001101178106060818_1.jpg"]
+            },
+{
+    title: "40",
+                coordinates: [
+                23.3092576,
+                45.0676138
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT TG JIU", "Identificator transportator": "AB63SLV", "Volum total": "10m cubi"},
+                images: ["DA23003279001002155203300805_0.jpg"]
+            },
+{
+    title: "40",
+                coordinates: [
+                23.3092576,
+                45.0676138
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Cherestele", "Marfă specie": "molid", "Proveniență": "DEPOZIT TG JIU", "Identificator transportator": "AB63SLV", "Volum total": "12.4416m cubi"},
+                images: ["DC23003279001202155205050815_0.jpg"]
+            },
+{
+    title: "40",
+                coordinates: [
+                23.3092576,
+                45.0676138
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Cherestele", "Marfă specie": "molid", "Proveniență": "DEPOZIT TG JIU", "Identificator transportator": "AB69SLV", "Volum total": "11.4048m cubi"},
+                images: ["DC23003279001102155203200909_0.jpg"]
+            },
+{
+    title: "40",
+                coordinates: [
+                23.3092576,
+                45.0676138
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Cherestele", "Marfă specie": "molid", "Proveniență": "DEPOZIT TG JIU", "Identificator transportator": "B558SLS", "Volum total": "12.4416m cubi"},
+                images: ["DC23003279001202155205050813_1.jpg"]
+            },
+{
+    title: "40",
+                coordinates: [
+                23.3092576,
+                45.0676138
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT TG JIU", "Identificator transportator": "B560SLS", "Volum total": "11m cubi"},
+                images: ["DA23003279001102157305030935_0.jpg"]
+            },
+{
+    title: "40",
+                coordinates: [
+                23.3092576,
+                45.0676138
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Cherestele", "Marfă specie": "molid", "Proveniență": "DEPOZIT TG JIU", "Identificator transportator": "B564SLS", "Volum total": "12.4416m cubi"},
+                images: ["DC23003279001202155203300803_0.jpg"]
+            },
+{
+    title: "41",
+                coordinates: [
+                22.9598757,
+                45.8327033
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DONA DA FOREST", "Identificator transportator": "AB57SLV", "Volum total": "10.11m cubi"},
+                images: ["DA23003458001002839104272111_1.jpg"]
+            },
+{
+    title: "41",
+                coordinates: [
+                22.9598757,
+                45.8327033
+                ],
+                details: {"Marfă grupe specii": "Fag, DIVERSE TARI", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag, cireș", "Proveniență": "DONA DA FOREST", "Identificator transportator": "AB57SLV", "Volum total": "11.55m cubi"},
+                images: ["DA23003458001102839104271643_1.jpg"]
+            },
+{
+    title: "41",
+                coordinates: [
+                22.9598757,
+                45.8327033
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI, Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "CARPEN, Fag, cireș", "Proveniență": "DONA DA FOREST", "Identificator transportator": "AB56SLV", "Volum total": "12.15m cubi"},
+                images: ["DA23003458001202839104271641_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB63SLV", "Volum total": "7.5m cubi"},
+                images: ["DA23001898000700638605040910_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB63SLV", "Volum total": "8m cubi"},
+                images: ["DA23001898000800638603241658_1.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB69SLV", "Volum total": "8m cubi"},
+                images: ["DA23001898000800638604071841_1.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB69SLV", "Volum total": "8.2m cubi"},
+                images: ["DA23001898000800638604101803_1.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB69SLV", "Volum total": "8m cubi"},
+                images: ["DA23001898000800638604250802_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad, molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB59SLV", "Volum total": "8.2m cubi"},
+                images: ["DA23001898000800638605051658_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB69SLV", "Volum total": "8m cubi"},
+                images: ["DA23001898000800638605060826_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB54SLV", "Volum total": "9m cubi"},
+                images: ["DA23001898000900638603161526_1.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Fag, Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "Fag, brad", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB69SLV", "Volum total": "9m cubi"},
+                images: ["DA23001898000900638603201747_1.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase, Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "brad, fag", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "AB55SLV", "Volum total": "9.3m cubi"},
+                images: ["DA23001898000900638603161527_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase, Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "brad, fag", "Proveniență":"VALEA BISTREI NR 72", "Identificator transportator": "AB55SLV", "Volum total": "9.3m cubi"},
+                images: ["DA23001898000900638603161527_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "B558SLS", "Volum total": "8m cubi"},
+                images: ["DA23001898000800638605040909_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "B564SLS", "Volum total": "8m cubi"},
+                images: ["DA23001898000800638604250800_0.jpg"]
+            },
+{
+    title: "42",
+                coordinates: [
+                23.0639872,
+                46.3830163
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "VALEA BISTREI NR 72", "Identificator transportator": "B564SLS", "Volum total": "8m cubi"},
+                images: ["DA23001898000800638603241657_1.jpg"]
+            },
+{
+    title: "43",
+                coordinates: [
+                23.3702502,
+                46.754976
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L)", "Proveniență": "SC EDI WOOD", "Identificator transportator": "AB56SLV", "Volum total": "11.5m cubi"},
+                images: ["DA23005912001105231004120902_0.jpg"]
+            },
+{
+    title: "43",
+                coordinates: [
+                23.3702502,
+                46.754976
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (S)", "Proveniență": "SC EDI WOOD", "Identificator transportator": "AB69SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23005912001205231003011253_0.jpg"]
+            },
+{
+    title: "43",
+                coordinates: [
+                23.3702502,
+                46.754976
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L)", "Proveniență": "SC EDI WOOD", "Identificator transportator": "AB57SLV", "Volum total": "11.5m cubi"},
+                images: ["DA23005912001105231004120904_0.jpg"]
+            },
+{
+    title: "43",
+                coordinates: [
+                23.3702502,
+                46.754976
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (L)", "Proveniență": "SC EDI WOOD", "Identificator transportator": "AB68SLV", "Volum total": "11.4m cubi"},
+                images: ["DA23005912001105231003011249_2.jpg"]
+            },
+{
+    title: "44",
+                coordinates: [
+                25.443098,
+                44.9140299
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "DEPOZIT TARGOVISTE STR. LAMINORULUI NR 8", "Identificator transportator": "B564SLS", "Volum total": "12m cubi"},
+                images: ["DA23013290001205154004061327_1.jpg"]
+            },
+{
+    title: "45",
+                coordinates: [
+                21.223282,
+                45.7408035
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Lemn rotund", "Marfă specie": "Fag", "Proveniență": "2200124403970 - 5990/T.PROG.2-FBR-OGASU SARBULUI", "Identificator transportator": "B564SLS", "Volum total": "13.268m cubi"},
+                images: ["AP23002670001305723103150939_0.jpg"]
+            },
+{
+    title: "46",
+                coordinates: [
+                23.562451,
+                45.8907886
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "SC Forex SRL Sebesel", "Identificator transportator": "AB58SLV", "Volum total": "11.5m cubi"},
+                images: ["DA23009624001101875904131258_1.jpg"]
+            },
+{
+    title: "46",
+                coordinates: [
+                23.562451,
+                45.8907886
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "SC Forex SRL Sebesel", "Identificator transportator": "AB68SLV", "Volum total": "11.5m cubi"},
+                images: ["DA23009624001101875903061439_1.jpg"]
+            },
+{
+    title: "47",
+                coordinates: [
+                23.4134559,
+                45.4515218
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "petrila", "Identificator transportator": "AB63SLV", "Volum total": "9.2m cubi"},
+                images: ["DA23003505000907245805121744_1.jpg"]
+            },
+{
+    title: "48",
+                coordinates: [
+                23.0353468,
+                45.0947857
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT GURENI", "Identificator transportator": "AB69SLV", "Volum total": "9.5m cubi"},
+                images: ["DA23001808000908628003211705_0.jpg"]
+            },
+{
+    title: "48",
+                coordinates: [
+                23.0353468,
+                45.0947857
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT GURENI", "Identificator transportator": "AB57SLV", "Volum total": "11.8m cubi"},
+                images: ["DA23001808001108628004111801_2.jpg"]
+            },
+{
+    title: "48",
+                coordinates: [
+                23.0353468,
+                45.0947857
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Rumeguș", "Marfă specie": "Fag", "Proveniență": "DEPOZIT GURENI", "Identificator transportator": "AB69SLV", "Volum total": "12.4m cubi"},
+                images: ["DA23001808001202112505251754_1.jpg"]
+            },
+{
+    title: "49",
+                coordinates: [
+                23.2108444,
+                45.8437902
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "ORASTIE 9MAI NR 74", "Identificator transportator": "AB58SLV", "Volum total": "11.7m cubi"},
+                images: ["DA23008447001101329002211301_1.jpg"]
+            },
+{
+    title: "49",
+                coordinates: [
+                23.2108444,
+                45.8437902
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "ORASTIE 9MAI NR 74", "Identificator transportator": "AB57SLV", "Volum total": "12.5m cubi"},
+                images: ["DA23008447001201329005051135_2.jpg"]
+            },
+{
+    title: "49",
+                coordinates: [
+                23.2108444,
+                45.8437902
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "ORASTIE 9MAI NR 74", "Identificator transportator": "AB55SLV", "Volum total": "10.2m cubi"},
+                images: ["DA23008447001001329003301228_0.jpg"]
+            },
+{
+    title: "49",
+                coordinates: [
+                23.2108444,
+                45.8437902
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență":"", "Identificator transportator":"", "Volum total": "m cubi"},
+                images: ["DA23008447001101329007071215_0.jpg"]
+            },
+{
+    title: "50",
+                coordinates: [
+                23.3603572,
+                45.417635
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE, Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "gorun (S), molid", "Proveniență": "PETROSANI", "Identificator transportator": "AB57SLV", "Volum total": "11.602582m cubi"},
+                images: ["DA23001645001102004903291516_1.jpg"]
+            },
+{
+    title: "51",
+                coordinates: [
+                24.0114521,
+                45.3681684
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "Fag", "Proveniență": "MALAIA NR 417", "Identificator transportator": "B564SLS", "Volum total": "8m cubi"},
+                images: ["DA23005029000800484205110918_1.jpg"]
+            },
+{
+    title: "52",
+                coordinates: [
+                22.8897228,
+                45.6979727
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad, molid", "Proveniență": "DEPOZIT CINCIS-CERNA", "Identificator transportator": "AB69SLV", "Volum total": "12m cubi"},
+                images: ["DA23009562001205822504271639_1.jpg"]
+            },
+{
+    title: "53",
+                coordinates: [
+                23.4192861,
+                45.418862
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT JIET", "Identificator transportator": "AB59SLV", "Volum total": "11m cubi"},
+                images: ["DA23002414001102437405231053_1.jpg"]
+            },
+{
+    title: "53",
+                coordinates: [
+                23.4192861,
+                45.418862
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT JIET", "Identificator transportator": "B564SLS", "Volum total": "12.1m cubi"},
+                images: ["DA23002414001202437404100918_1.jpg"]
+            },
+{
+    title: "54",
+                coordinates: [
+                24.0356505,
+                45.3528161
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad, molid", "Proveniență": "Lunca Malaii", "Identificator transportator": "AB69SLV", "Volum total": "7m cubi"},
+                images: ["DA23005974000700735005111004_0.jpg"]
+            },
+{
+    title: "55",
+                coordinates: [
+                22.0720802,
+                45.8300702
+                ],
+                details: {"Marfă grupe specii": "Fag", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "Fag", "Proveniență": "PAMIRCO DEPOZIT MANASTIUR", "Identificator transportator": "B558SLS", "Volum total": "11.84m cubi"},
+                images: ["DA23002829001101422003110937_1.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "biomasă necertificabilă", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "AB63SLV", "Volum total": "11.5m cubi"},
+                images: ["DA23000207001102521703141814_0.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "AB54SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23000207001200713103301706_0.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "AB69SLV", "Volum total": "12m cubi"},
+                images: ["DA23000207001202521705091807_1.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "AB55SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23000207001200713103301711_0.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "AB63SLV", "Volum total": "11.84m cubi"},
+                images: ["DA23000207001100713103090731_2.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "AB63SLV", "Volum total": "13m cubi"},
+                images: ["DA23000207001302521704251510_0.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator":"", "Volum total": "m cubi"},
+                images: ["DA23000207001202521706240928_2.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "AB69SLV", "Volum total": "12m cubi"},
+                images: ["DA23000207001202521706030801_2.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "AB62SLV", "Volum total": "11.97m cubi"},
+                images: ["DA23000207001100713103090730_0.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad, molid", "Proveniență": "Ferma 6", "Identificator transportator": "B558SLS", "Volum total": "12m cubi"},
+                images: ["DA23000207001202521706240927_1.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "brad", "Proveniență": "Ferma 6", "Identificator transportator": "B558SLS", "Volum total": "12m cubi"},
+                images: ["DA23000207001202521704251506_1.jpg"]
+            },
+{
+    title: "56",
+                coordinates: [
+                23.3732489,
+                46.7561968
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Ferma 6", "Identificator transportator": "B564SLS", "Volum total": "12m cubi"},
+                images: ["DA23000207001202521705091806_0.jpg"]
+            },
+{
+    title: "57",
+                coordinates: [
+                23.4135859,
+                45.4544916
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Petrila", "Identificator transportator": "B558SLS", "Volum total": "11.8m cubi"},
+                images: ["DA23006519001100822505090913_2.jpg"]
+            },
+
+{
+    title: "58",
+                coordinates: [
+                23.4649709,
+                45.4616859
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "Depozit Tirici 2", "Identificator transportator": "AB63SLV", "Volum total": "9m cubi"},
+                images: ["DA23016119000905762304241242_0.jpg"]
+            },
+{
+    title: "58",
+                coordinates: [
+                23.4649709,
+                45.4616859
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "Depozit Tirici 2", "Identificator transportator": "B558SLS", "Volum total": "9m cubi"},
+                images: ["DA23016119000905762304241238_0.jpg"]
+            },
+{
+    title: "59",
+                coordinates: [
+                22.5011547,
+                45.9004177
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "coajă", "Marfă specie": "salcâm", "Proveniență": "TEIU, Com. Lapugiu de Jos", "Identificator transportator": "AB57SLV", "Volum total": "8.34m cubi"},
+                images: ["DA23003113000805252604061930_0.jpg"]
+            },
+{
+    title: "59",
+                coordinates: [
+                22.5011547,
+                45.9004177
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "coajă", "Marfă specie": "salcâm", "Proveniență": "TEIU, Com. Lapugiu de Jos", "Identificator transportator": "AB57SLV", "Volum total": "10.1m cubi"},
+                images: ["DA23003113001000196305060834_1.jpg"]
+            },
+{
+    title: "59",
+                coordinates: [
+                22.5011547,
+                45.9004177
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "coajă", "Marfă specie": "salcâm", "Proveniență": "TEIU, Com. Lapugiu de Jos", "Identificator transportator": "AB63SLV", "Volum total": "10m cubi"},
+                images: ["DA23003113001005252603161524_0.jpg"]
+            },
+{
+    title: "59",
+                coordinates: [
+                22.5011547,
+                45.9004177
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "salcâm", "Proveniență": "TEIU, Com. Lapugiu de Jos", "Identificator transportator": "AB56SLV", "Volum total": "10.85m cubi"},
+                images: ["DA23003113001005252604061926_2.jpg"]
+            },
+{
+    title: "59",
+                coordinates: [
+                22.5011547,
+                45.9004177
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "coajă, biomasă necertificabilă", "Marfă specie": "salcâm, SALC M (P)", "Proveniență": "TEIU, Com. Lapugiu de Jos", "Identificator transportator": "AB63SLV", "Volum total": "11m cubi"},
+                images: ["DA23003113001100196303292006_1.jpg"]
+            },
+{
+    title: "59",
+                coordinates: [
+                22.5011547,
+                45.9004177
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "coajă", "Marfă specie": "salcâm", "Proveniență": "TEIU, Com. Lapugiu de Jos", "Identificator transportator": "AB61SLV", "Volum total": "8m cubi"},
+                images: ["DA23003113000808611503101414_0.jpg"]
+            },
+{
+    title: "59",
+                coordinates: [
+                22.5011547,
+                45.9004177
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "salcâm", "Proveniență": "TEIU, Com. Lapugiu de Jos", "Identificator transportator": "B558SLS", "Volum total": "10m cubi"},
+                images: ["DA23003113001005252605311651_2.jpg"]
+            },
+{
+    title: "59",
+                coordinates: [
+                22.5011547,
+                45.9004177
+                ],
+                details: {"Marfă grupe specii": "DIVERSE TARI", "Marfă sortimente": "coajă", "Marfă specie": "salcâm", "Proveniență": "TEIU, Com. Lapugiu de Jos", "Identificator transportator": "B560SLS", "Volum total": "8m cubi"},
+                images: ["DA23003113000805252604041722_1.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB49SLV", "Volum total": "22.5m cubi"},
+                images: ["DA22003941002206594707021413_2.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB69SLV", "Volum total": "11.4m cubi"},
+                images: ["DA23003941001102056102221135_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB69SLV", "Volum total": "12.35m cubi"},
+                images: ["DA23003941001202056103091125_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB69SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23003941001202056104111231_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB54SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23003941001202056105051110_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB53SLV", "Volum total": "22.5m cubi"},
+                images: ["DA23003941002202056101241320_2.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB53SLV", "Volum total": "22.5m cubi"},
+                images: ["DA23003941002202056105081318_1.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură certificabilă", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB53SLV", "Volum total": "27.7m cubi"},
+                images: ["DA23003941002702056105181522_1.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Diverse moi, Fag", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "plop tremurător, salcie căprească, Fag", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB53SLV", "Volum total": "27.692252m cubi"},
+                images: ["DA23003941002706594703171725_2.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB45SLV", "Volum total": "27.2m cubi"},
+                images: ["DA22003941002703283706102201_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator":"", "Volum total": "m cubi"},
+                images: ["DA23003941002202056106151542_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB55SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23003941001202056105051111_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB37SLV", "Volum total": "22.5m cubi"},
+                images: ["DA23003941002208286303101635_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB51SLV", "Volum total": "22.5m cubi"},
+                images: ["DA23003941002202056103101148_2.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB51SLV", "Volum total": "22.5m cubi"},
+                images: ["DA23003941002202056105191139_1.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "tocătură provenită din lemn", "Marfă specie": "brad", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB51SLV", "Volum total": "27.7m cubi"},
+                images: ["DA23003941002702056103161505_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB68SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23003941001202056102221134_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "AB68SLV", "Volum total": "12.35m cubi"},
+                images: ["DA23003941001202056103091122_0.jpg"]
+            },
+{
+    title: "60",
+                coordinates: [
+                24.9753708,
+                47.3645833
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT FABRICA LUNCA ILVEI", "Identificator transportator": "B564SLS", "Volum total": "12.1m cubi"},
+                images: ["DA23003941001202056104111230_0.jpg"]
+            },
+{
+    title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "AB69SLV", "Volum total": "11.95m cubi"},
+                images: ["DA23003939001103360302220904_0.jpg"]
+            },
+{
+    title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "AB69SLV", "Volum total": "12.35m cubi"},
+                images: ["DA23003939001203360303090937_0.jpg"]
+            },
+{
+    title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "AB54SLV", "Volum total": "12.25m cubi"},
+                images: ["DA23003939001203360303240950_1.jpg"]
+            },
+{
+    title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "AB69SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23003939001203360304111121_0.jpg"]
+            },
+{
+    title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "AB54SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23003939001203360305050947_0.jpg"]
+            },
+            {
+            title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "AB55SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23003939001203360305050949_2.jpg"]
+            },
+            {
+            title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "AB68SLV", "Volum total": "12.5m cubi"},
+                images: ["DA23003939001203360302220902_0.jpg"]
+            },
+            {
+            title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "AB68SLV", "Volum total": "12.35m cubi"},
+                images: ["DA23003939001203360303090934_0.jpg"]
+            },
+            {
+            title: "61",
+                coordinates: [
+                24.8733889,
+                47.4409963
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "DEPOZIT SANT", "Identificator transportator": "B564SLS", "Volum total": "12.1m cubi"},
+                images: ["DA23003939001203360304111119_0.jpg"]
+            },
+        
+            {
+                title: "62",
+                coordinates: [
+                23.2136508,
+                46.1427717
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Valtori 484", "Identificator transportator": "AB63SLV", "Volum total": "10.7m cubi"},
+                images: ["DA23001028001000635903131736_1.jpg"]
+            },
+            {
+                title: "62",
+                coordinates: [
+                23.2136508,
+                46.1427717
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "molid", "Proveniență": "Valtori 484", "Identificator transportator": "B562SLS", "Volum total": "11m cubi"},
+                images: ["DA23001028001100635903231902_0.jpg"]
+            },
+            {
+                title: "63",
+                coordinates: [
+                23.2966932,
+                45.0378221
+                ],
+                details: {"Marfă grupe specii": "Rășinoase", "Marfă sortimente": "Rumeguș", "Marfă specie": "molid", "Proveniență": "Tg-Jiu", "Identificator transportator": "AB57SLV", "Volum total": "12.1m cubi"},
+                images: ["DA23006906001201039405150821_2.jpg"]
+            },
+            {
+                title: "64",
+                coordinates: [
+                23.9116494,
+                47.9336041
+                ],
+                details: {"Marfă grupe specii": "QVERCINEE", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "gorun (S)", "Proveniență": "Sighetu Marmatiei, Unirii 40", "Identificator transportator": "AB51SLV", "Volum total": "22m cubi"},
+                images: ["DA23003948002206696103070919_2.jpg"]
+            },
+            {
+            title: "65",
+                coordinates: [
+                24.6698308,
+                45.1684656
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Resturi de lemn", "Marfă specie": "plop euramerican I-214", "Proveniență": "CURTEA DE ARGES SEDIU", "Identificator transportator": "AB56SLV", "Volum total": "12.18m cubi"},
+                images: ["DA23004973001202407604070942_1.jpg"]
+            },
+            {
+            title: "65",
+                coordinates: [
+                24.6698308,
+                45.1684656
+                ],
+                details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Cherestele", "Marfă specie": "plop euramerican I-214", "Proveniență": "CURTEA DE ARGES SEDIU", "Identificator transportator": "AB57SLV", "Volum total": "9.661567m cubi"},
+                images: ["DC23004973000902407604070944_1.jpg"]
+            },
+            
+            {
+            title: "65",
+            coordinates: [
+            24.6698308,
+            45.1684656
+            ],
+            details: {"Marfă grupe specii": "Diverse moi", "Marfă sortimente": "Cherestele", "Marfă specie": " tei argintiu, plop euramerican I-214", "Proveniență": "CURTEA DE ARGES SEDIU", "Identificator transportator": "AB45SLV", "Volum total": "20.282832m cubi"},
+            images: ["DC23004973002002407604241235_0.jpg"]
+            }
+]
+
+// Function to slightly offset coordinates
+function offsetCoordinates(coordinates, index, offsetAmount = 0.0009) {
+    return [
+        coordinates[0] + index * offsetAmount,
+        coordinates[1] + index * offsetAmount
+    ];
+}
+
+// Function to adjust overlapping markers
+function adjustOverlappingMarkers(locations) {
+    const locationCount = {};
+    const offsetAmount = 0.0001; // Small offset
+
+    locations.forEach((location, index) => {
+        const coordKey = location.coordinates.join(',');
+
+        if (!locationCount[coordKey]) {
+            locationCount[coordKey] = 0;
+        } else {
+            locationCount[coordKey]++;
+            locations[index].coordinates = offsetCoordinates(location.coordinates, locationCount[coordKey], offsetAmount);
+        }
+    });
+}
+
+// Function to group locations by coordinates
+function groupByCoordinates(locations) {
+    const grouped = {};
+    locations.forEach(location => {
+        const coordKey = location.coordinates.join(',');
+        if (!grouped[coordKey]) {
+            grouped[coordKey] = [];
+        }
+        grouped[coordKey].push(location);
+    });
+    return grouped;
+}
+
+const groupedLocations = groupByCoordinates(locations);
+
+function initSlider() {
+    var sliders = document.querySelectorAll('.image-slider');
+    sliders.forEach(slider => {
+        var slides = slider.querySelectorAll('.slide');
+        var currentSlide = 0;
+        
+        // Function to go to a slide
+        function goToSlide(n) {
+            slides[currentSlide].classList.remove('active');
+            currentSlide = (n + slides.length) % slides.length;
+            slides[currentSlide].classList.add('active');
+        }
+
+        // Arrow navigation
+        slider.querySelector('.prev').addEventListener('click', function() {
+            goToSlide(currentSlide - 1);
+        });
+
+        slider.querySelector('.next').addEventListener('click', function() {
+            goToSlide(currentSlide + 1);
+        });
+    });
+}
+
+
+// Modified updatePanel function to change the title and display details when a marker is clicked
+function updatePanel(locationGroup) {
+    // Update the title to "Detalii transport"
+    document.getElementById('markerTitle').textContent = 'Detalii transport';
+
+    // Your existing code to generate and display the details for the clicked marker
+    var detailsHtml = '';
+    locationGroup.forEach(location => {
+        detailsHtml += '<div class="location-entry">';
+        // detailsHtml += '<h3>' + location.title + '</h3>';
+        detailsHtml += '<div class="image-slider">';
+        detailsHtml += '<a class="prev">&#10094;</a>';
+        location.images.forEach((imageSrc, index) => {
+            detailsHtml += '<div class="slide' + (index === 0 ? ' active' : '') + '">';
+            detailsHtml += '<img src="' + imageSrc + '" alt="Location Image">';
+            detailsHtml += '</div>';
+        });
+        detailsHtml += '<a class="next">&#10095;</a>';
+        detailsHtml += '</div>';
+        Object.keys(location.details).forEach(key => {
+            detailsHtml += '<strong>' + key + ':</strong> ' + location.details[key] + '<br>';
+        });
+        detailsHtml += '</div>';
+    });
+    document.getElementById('markerDetails').innerHTML = detailsHtml;
+
+    // Initialize the slider
+    initSlider();
+}
+
+// Function to add markers to the map for each group
+function addMarkersToMap(groupedLocations) {
+    Object.keys(groupedLocations).forEach(coordKey => {
+        const locationGroup = groupedLocations[coordKey];
+        const coordinates = coordKey.split(',').map(Number);
+
+        var el = document.createElement('div');
+        el.className = 'marker';
+        el.style.backgroundImage = 'url(marker.png)';
+        el.style.width = '50px'; // Adjust the size as needed
+        el.style.height = '50px';
+        el.style.backgroundSize = 'cover'; // Ensure the image covers the div
+
+        var marker = new mapboxgl.Marker(el)
+            .setLngLat(coordinates)
+            .addTo(map);
+
+        marker.getElement().addEventListener('click', () => updatePanel(locationGroup));
+    });
+}
+
+addMarkersToMap(groupedLocations);
+
+// Function to update hints based on search input
+function updateSearchHints() {
+    var query = document.getElementById('searchInput').value.toLowerCase();
+    var hints = document.getElementById('searchHints');
+    hints.innerHTML = ''; // Clear existing hints
+
+    if (query.length > 2) {
+        Object.keys(groupedLocations).forEach(coordKey => {
+            groupedLocations[coordKey].forEach(location => {
+                // Check if title or details match the query
+                if (location.title.toLowerCase().includes(query) || 
+                    Object.values(location.details).some(detail => detail.toLowerCase().includes(query))) {
+                    var li = document.createElement('li');
+                    li.textContent = location.title; // Display the title in hints
+                    li.onclick = function () {
+                        searchAndNavigate(location.title); // Search by title
+                        document.getElementById('searchInput').value = location.title; // Update input with selected title
+                    };
+                    hints.appendChild(li);
+                }
+            });
+        });
+    }
+}
+
+function searchAndNavigate(searchQuery) {
+    let found = false;
+    Object.keys(groupedLocations).forEach(coordKey => {
+        const locationGroup = groupedLocations[coordKey];
+        locationGroup.forEach(location => {
+            if (location.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+                updatePanel(locationGroup);
+                map.flyTo({ 
+                    center: locationGroup[0].coordinates,
+                    zoom: 10 // Adjust zoom level as needed
+                });
+                document.getElementById('searchHints').innerHTML = '';
+                found = true;
+            }
+        });
+    });
+
+    if (!found) {
+        alert("Location not found");
+    }
+}
+
+map.on('load', function() {
+    // Load a custom marker image
+    map.loadImage('marker.png', function(error, image) {
+        if (error) throw error;
+        map.addImage('custom-marker', image);
+
+        // Now add markers after the image is loaded
+        addMarkersToMap(groupedLocations);
+    });
+});
+
+    </script>
+</body>
+</html>
