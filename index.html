@@ -92,7 +92,7 @@
 
             .slide img {
                 width: 100%;
-                height: auto;
+                height: auto; /* Cover the area, maintain aspect ratio, and crop if necessary */
             }
 
             .prev, .next {
@@ -180,12 +180,12 @@
     <div id="map"></div>
     <div id="panel">
         <div>
-            <input type="text" id="searchInput" placeholder="Cauta..." oninput="updateSearchHints()">
-            <button onclick="searchAndNavigate(document.getElementById('searchInput').value)">Cauta firma sau tipul de lemn</button>
+            <input type="text" id="searchInput" placeholder="Caută..." oninput="updateSearchHints()">
+            <button onclick="searchAndNavigate(document.getElementById('searchInput').value)">Caută după tipul de lemn sau localitate</button>
             <ul id="searchHints" style="list-style-type: none; padding: 0;"></ul>
         </div>
         <h2 id="markerTitle">Folosește harta interactivă</h2>
-        <p id="markerDetails">Caută mai sus firma, locația sau tipul de lemn care te interesează. Click pe markerele de pe hartă pentru detalii legate de firme și de transporturile pe care le fac. Fiecare marker = o firmă. Zoom in și out pentru interacțiune</p>
+        <p id="markerDetails"><strong>Caută</strong> mai sus locația sau tipul de lemn care te interesează. <strong>Click</strong> pe markerele de pe hartă pentru detalii legate de firme și de transporturile pe care le fac. Fiecare marker = o firmă. <strong>Zoom in</strong> și out pentru interacțiune.</p>
         
         
     </div>
@@ -2475,27 +2475,30 @@ addMarkersToMap(groupedLocations);
 
 // Function to update hints based on search input
 function updateSearchHints() {
-    var query = document.getElementById('searchInput').value.toLowerCase();
-    var hints = document.getElementById('searchHints');
-    hints.innerHTML = ''; // Clear existing hints
+    const query = document.getElementById('searchInput').value.toLowerCase();
+    const hintsElement = document.getElementById('searchHints');
+    hintsElement.innerHTML = ''; // Clear existing hints
 
     if (query.length > 2) {
-        Object.keys(groupedLocations).forEach(coordKey => {
-            groupedLocations[coordKey].forEach(location => {
-                // Check if title or details match the query
-                if (location.title.toLowerCase().includes(query) || 
-                    Object.values(location.details).some(detail => detail.toLowerCase().includes(query))) {
-                    var li = document.createElement('li');
-                    li.textContent = location.title; // Display the title in hints
-                    li.onclick = function () {
-                        searchAndNavigate(location.title); // Search by title
-                        document.getElementById('searchInput').value = location.title; // Update input with selected title
+        locations.forEach(location => {
+            Object.entries(location.details).forEach(([key, value]) => {
+                if (value.toLowerCase().includes(query)) {
+                    // Create a hint element for each matching detail
+                    const hint = document.createElement('li');
+                    hint.textContent = `${key}: ${value}`;
+                    hint.onclick = function () {
+                        // Implement the desired action when a hint is clicked
+                        // For example, navigate to the location on the map
+                        // This example just logs the selection for demonstration
+                        searchAndNavigate(location.title);
                     };
-                    hints.appendChild(li);
+                    hintsElement.appendChild(hint);
                 }
             });
         });
     }
+
+    document.getElementById('searchInput').addEventListener('input', updateSearchHints);
 }
 
 function searchAndNavigate(searchQuery) {
